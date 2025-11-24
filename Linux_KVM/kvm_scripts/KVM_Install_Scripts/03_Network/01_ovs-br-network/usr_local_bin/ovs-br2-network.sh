@@ -19,7 +19,7 @@
 #===============================================================================
 #
 #-------------------------------------------------------------------------------
-# MODE 1: ACTIVE_BACKUP (Failover Only)
+# 1: ACTIVE_BACKUP (Failover Only)
 #-------------------------------------------------------------------------------
 ## 1.1 CATEGORY: Failover Only (Passive)
 ## 1.2 LOAD BALANCING: None. Only one link is active at a time.
@@ -33,7 +33,7 @@
 ###    1.4.4 LAG/PC: DO NOT configure a Link Aggregation Group (LAG) or Port-Channel (PC).
 
 #-------------------------------------------------------------------------------
-# MODE 2: BALANCE_SLB (Source Load Balancing)
+# 2: BALANCE_SLB (Source Load Balancing)
 #-------------------------------------------------------------------------------
 ## 2.1 CATEGORY: Active/Active (Limited Load Balancing)
 ## 2.2 LOAD BALANCING: Based on Source MAC address (and VLAN). OVS handles balancing internally.
@@ -47,7 +47,7 @@
 ###    2.4.4 LAG/PC: DO NOT configure a Port-Channel (PC) or LAG.
 
 #-------------------------------------------------------------------------------
-# MODE 3: LACP with BALANCE_TCP
+# 3: LACP with BALANCE_TCP
 #-------------------------------------------------------------------------------
 ## 3.1 CATEGORY: Active/Active (Advanced Load Balancing)
 ## 3.2 LOAD BALANCING: Flow-based, utilizing Layer 2, Layer 3, and Layer 4 fields (MAC, IP, Ports). Requires switch cooperation via LACP.
