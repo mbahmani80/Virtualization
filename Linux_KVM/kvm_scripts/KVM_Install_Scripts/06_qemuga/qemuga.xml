@@ -1,0 +1,4 @@
+<channel type='unix'>
+   <source mode='bind' path='/var/lib/libvirt/qemu/f16x86_64.agent'/>
+   <target type='virtio' name='org.qemu.guest_agent.0'/>
+</channel>

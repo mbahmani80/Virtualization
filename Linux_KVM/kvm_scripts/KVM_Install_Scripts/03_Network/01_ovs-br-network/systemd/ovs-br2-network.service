@@ -1,0 +1,18 @@
+[Unit]
+Description=Configure OVS br2 ens193,ens225 kvm internal network
+After=network.target NetworkManager.service openvswitch.service ovsdb-server.service ovs-vswitchd.service
+Requires=openvswitch.service
+PartOf=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/local/bin/ovs-br2-network.sh start
+ExecStop=/usr/local/bin/ovs-br2-network.sh stop
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

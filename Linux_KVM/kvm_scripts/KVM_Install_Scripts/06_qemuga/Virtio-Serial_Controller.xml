@@ -1,0 +1,3 @@
+<controller type='virtio-serial' index='0'>
+  <address type='pci' domain='0' bus='0' slot='4' function='0'/>
+</controller>

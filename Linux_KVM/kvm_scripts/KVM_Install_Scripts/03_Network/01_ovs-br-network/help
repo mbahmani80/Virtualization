@@ -1,0 +1,87 @@
+#!/bin/bash
+#Ref
+# https://docs.redhat.com/en/documentation/red_hat_openstack_platform/12/html/advanced_overcloud_customization/appe-bonding_options
+#https://forum.proxmox.com/threads/solution-multiple-ovs-sdn-and-lacp-heartaches.120634/
+#https://forum.proxmox.com/threads/2nics-bonding-ovs-vlan.128553/
+#https://portal.nutanix.com/page/documents/solutions/details?targetId=BP-2071-AHV-Networking:load-balancing-in-bond-interfaces.html
+
+cat /etc/NetworkManager/NetworkManager.conf
+...
+[keyfile]
+unmanaged-devices=interface-name:eno1;interface-name:eno2;interface-name:eno3;interface-name:eno4
+... 
+ 
+cp usr_local_bin/ovs-br0-network.sh /usr/local/bin/
+chmod u+x /usr/local/bin/ovs-br0-network.sh
+/usr/local/bin/ovs-br0-network.sh create
+
+cp usr_local_bin/ovs-br1-network.sh /usr/local/bin/
+chmod u+x /usr/local/bin/ovs-br1-network.sh
+/usr/local/bin/ovs-br1-network.sh create
+
+cp usr_local_bin/ovs-br2-network.sh /usr/local/bin/
+chmod u+x /usr/local/bin/ovs-br2-network.sh
+/usr/local/bin/ovs-br2-network.sh create
+
+
+
+cp systemd/ovs-br0-network.service /etc/systemd/system/ovs-br0-network.service
+cp systemd/ovs-br1-network.service /etc/systemd/system/ovs-br1-network.service
+cp systemd/ovs-br2-network.service /etc/systemd/system/ovs-br2-network.service
+systemctl daemon-reload
+systemctl enable --now ovs-br0-network.service
+systemctl enable --now ovs-br1-network.service
+systemctl enable --now ovs-br2-network.service
+
+
+
+
+#===============================================================================
+#OPEN vSWITCH (OVS) BONDING MODES & SWITCH REQUIREMENTS
+#===============================================================================
+#
+#-------------------------------------------------------------------------------
+# MODE 1: ACTIVE_BACKUP (Failover Only)
+#-------------------------------------------------------------------------------
+## 1.1 CATEGORY: Failover Only (Passive)
+## 1.2 LOAD BALANCING: None. Only one link is active at a time.
+## 1.3 LINUX SIDE TOPOLOGY:
+###    1.3.1 Recommended: Connect each NIC to a separate, independent physical switch for the highest redundancy (protects against switch failure).
+###    1.3.2 Alternative: Connect both NICs to a single physical switch.
+## 1.4 SWITCH REQUIREMENTS:
+###    1.4.1 Switches Needed: One OR Two (Independent).
+###    1.4.2 Configuration:None Required.
+###    1.4.3 Port Setup: Configure ports as standard Access or Trunk ports.
+###    1.4.4 LAG/PC: DO NOT configure a Link Aggregation Group (LAG) or Port-Channel (PC).
+
+#-------------------------------------------------------------------------------
+# MODE 2: BALANCE_SLB (Source Load Balancing)
+#-------------------------------------------------------------------------------
+## 2.1 CATEGORY: Active/Active (Limited Load Balancing)
+## 2.2 LOAD BALANCING: Based on Source MAC address (and VLAN). OVS handles balancing internally.
+## 2.3 LINUX SIDE TOPOLOGY:
+###    2.3.1 Required: Connect both NICs to a single logical switch (e.g., a standalone switch or a stack of switches operating as one unit).
+###    2.3.2 CRITICAL: Must NOT span two independent switches, as this causes MAC flapping and loops.
+## 2.4 SWITCH REQUIREMENTS:
+###    2.4.1 Switches Needed: One logical unit.
+###    2.4.2 Configuration: None Required.
+###    2.4.3 Port Setup: Configure ports as standard Access or Trunk ports.
+###    2.4.4 LAG/PC: DO NOT configure a Port-Channel (PC) or LAG.
+
+#-------------------------------------------------------------------------------
+# MODE 3: LACP with BALANCE_TCP
+#-------------------------------------------------------------------------------
+## 3.1 CATEGORY: Active/Active (Advanced Load Balancing)
+## 3.2 LOAD BALANCING: Flow-based, utilizing Layer 2, Layer 3, and Layer 4 fields (MAC, IP, Ports). Requires switch cooperation via LACP.
+## 3.3 LINUX SIDE TOPOLOGY:
+###    3.3.1 Required: Connect both NICs to a single logical aggregate.
+###    3.3.2 Common Setup: Two Cisco Nexus switches configured as a vPC Peer Domain.
+## 3.4 SWITCH REQUIREMENTS:
+###    3.4.1 Switches Needed: Two MLAG/vPC-capable switches (e.g., Cisco Nexus 5000/7000/9000).
+###    3.4.2 Configuration: REQUIRED
+###    3.4.3 Switch Feature: Must have Multi-Chassis Link Aggregation (MLAG/vPC) configured.
+###    3.4.4 Port Setup: Configure a Port-Channel (LAG) on the switch.
+###    3.4.5 LACP Mode: Set the Port-Channel to use LACP (mode active).
+###    3.4.6 Hashing: Ensure the switch's load-balancing hash matches OVS (ideally L3 and L4).
+
+#===============================================================================

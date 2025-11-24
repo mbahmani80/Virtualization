@@ -1,0 +1,4 @@
+<channel type='unix'>
+   <source mode='bind' path='/mnt/select3-ontap/svm_nfs1_data1/qemu.guest_agent/win2k19-dc01.agent'/>
+   <target type='virtio' name='org.qemu.guest_agent.0'/>
+</channel>

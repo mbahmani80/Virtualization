@@ -1,0 +1,10 @@
+<pool type='logical'>
+  <name>ontap_select</name>
+  <source>
+    <name>ontap_select</name>
+    <format type='lvm2'/>
+  </source>
+  <target>
+    <path>/dev/ontap_select</path>
+  </target>
+</pool>

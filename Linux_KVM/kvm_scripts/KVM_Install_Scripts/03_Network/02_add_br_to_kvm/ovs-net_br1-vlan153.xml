@@ -1,0 +1,6 @@
+<network>
+  <name>br1-vlan153</name>
+  <forward mode='bridge'/>
+  <bridge name='br1-vlan153'/>
+  <virtualport type='openvswitch'/>
+</network>

@@ -1,0 +1,14 @@
+<pool type='dir'>
+  <name>ISO</name>
+  <source>
+  </source>
+  <target>
+    <path>/mnt/select3-ontap/svm_nfs1_data1/ISO</path>
+    <permissions>
+      <mode>0755</mode>
+      <owner>0</owner>
+      <group>0</group>
+    </permissions>
+  </target>
+</pool>
+

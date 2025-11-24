@@ -1,0 +1,11 @@
+Management: br0
+Network Adabter1 ens192: 00:50:56:88:8b:fc
+Network Adabter2 ens224: 00:50:56:88:6e:84
+
+kVM-Net: br1, br1-vlan151, br1-vlan152, br1-vlan153
+Network Adabter3 ens256: 00:50:56:88:e7:9d
+Network Adabter4 ens161: 00:50:56:88:8d:ec
+
+KVM-Net-Internal: br2
+Network Adabter5 ens193: 00:50:56:88:a4:66
+Network Adabter6 ens225: 00:50:56:88:04:52

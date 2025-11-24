@@ -1,0 +1,37 @@
+# ansible-playbook -i hosts 03_update_rocky_based.yml --ask-pass --ask-become-pass
+# --ask-pass → SSH login password
+# --ask-become-pass → sudo password
+
+---
+- hosts: kvmnodes 
+  become: yes 
+  gather_facts: no
+  tasks:
+    - name: Update dnf repo and cache on all Rocky Linux boxes
+      dnf:
+        update_cache: yes
+
+    - name: Upgrade all packages on servers
+      dnf:
+        name: "*"
+        state: latest
+
+    - name: Check for reboot-required file
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+
+    - name: Display reboot requirement status
+      debug:
+        msg: >
+          Reboot required: {{ reboot_required_file.stat.exists }}
+
+#    - name: Reboot the box if kernel updated
+#      reboot:
+#        msg: "Reboot initiated by Ansible for kernel updates"
+#        connect_timeout: 5
+#        reboot_timeout: 300
+#        pre_reboot_delay: 0
+#        post_reboot_delay: 30
+#        test_command: uptime
+#      when: reboot_required_file.stat.exists

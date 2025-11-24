@@ -1,0 +1,23 @@
+virsh net-define ovs-net_br0.xml
+virsh net-start br0
+virsh net-autostart br0
+
+virsh net-define ovs-net_br1.xml
+virsh net-start br1
+virsh net-autostart br1
+
+virsh net-define ovs-net_br1-vlan151.xml
+virsh net-define ovs-net_br1-vlan152.xml
+virsh net-define ovs-net_br1-vlan153.xml
+virsh net-start br1-vlan151
+virsh net-start br1-vlan152
+virsh net-start br1-vlan153
+virsh net-autostart br1-vlan151
+virsh net-autostart br1-vlan152
+virsh net-autostart br1-vlan153
+
+virsh net-define ovs-net_br2.xml
+virsh net-start br2
+virsh net-autostart br2
+
+virsh net-list --all

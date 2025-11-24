@@ -1,0 +1,21 @@
+#These commands will add the ISO storage pool to KVM with the new configuration and ensure it starts automatically on boot.
+#
+#
+
+
+
+virsh pool-define ontap_select_pool.xml
+virsh pool-start ontap_select
+virsh pool-autostart ontap_select
+virsh pool-list
+
+#Define the storage pool using the new XML file:
+virsh pool-define ISO_pool.xml
+
+#Start the storage pool:
+virsh pool-start ISO
+
+#Set the storage pool to autostart on boot:
+virsh pool-autostart ISO
+
+

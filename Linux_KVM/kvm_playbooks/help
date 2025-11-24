@@ -1,0 +1,11 @@
+ansible -i hosts all -m ping -u sysadmin --ask-become-pass
+
+ansible -i hosts kvm-node01.lab.local  -m ping -u sysadmin --ask-become-pass
+
+BECOME password:
+kvm-node01.lab.local | SUCCESS => {
+    "changed": false,
+    "ping": "pong"
+
+
+
