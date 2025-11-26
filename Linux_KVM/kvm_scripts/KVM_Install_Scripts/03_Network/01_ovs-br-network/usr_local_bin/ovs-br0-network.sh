@@ -66,7 +66,7 @@ set -o errexit    # Exit the script immediately if any command returns a non-zer
 set -o pipefail   # Return a failure if any command fails, not just the last one.
 set -o nounset    # Treat unset variables as an error and exit immediately.
 # ================================
-# Configuration Variables
+# Configuration Variables br0
 # ================================
 BR0_NAME="br0"
 BR0_BOND0_NAME="br0bond0"
@@ -164,10 +164,6 @@ create_bridge_br0() {
 			# ---------- Active-Backup Mode ----------
 			# Linux/OVS: Only one NIC is active at a time. If the active NIC fails,
 			#            traffic automatically fails over to the standby NIC.
-			# Switch-side: Standard switch (no LACP or EtherChannel needed)
-			# VMware Equivalent: NIC Teaming -> Failover Order (Active/Standby uplink)
-			#                   Load balancing: "Route based on originating virtual port ID"
-
 			ovs-vsctl set port "${BR0_BOND0_NAME}" bond_mode=active-backup
 			# Set link monitoring
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:bond-detect-mode=miimon
@@ -182,10 +178,6 @@ create_bridge_br0() {
 			# ---------- Balance-SLB (Load Balancing) ----------
 			# Linux/OVS: All NICs in the bond are active. Outgoing traffic is distributed
 			#            across all active interfaces using adaptive load balancing.
-			# Switch-side: Static EtherChannel (manual aggregation)
-			# VMware Equivalent: NIC Teaming -> All uplinks active
-			#                   Load balancing: "Route based on IP hash"
-
 			ovs-vsctl set port "${BR0_BOND0_NAME}" bond_mode=balance-slb
 			# Set link monitoring
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:bond-detect-mode=miimon
@@ -198,11 +190,7 @@ create_bridge_br0() {
 			# ---------- LACP (802.3ad) ----------
 			# Linux/OVS: Uses 802.3ad protocol to negotiate link aggregation with the switch.
 			#            Multiple NICs are active, and traffic is load-balanced according to
-			#            hash algorithms (typically TCP/UDP or IP hash).
-			# Switch-side: Dynamic LACP with matching configuration
-			# VMware Equivalent: vSphere vDS NIC Teaming, Load balancing: "Route based on IP hash"
-			#                   Requires LACP-capable switch
-
+			#            hash algorithms (typically TCP/UDP).
             ovs-vsctl set port "${BR0_BOND0_NAME}" lacp=active
 			ovs-vsctl set port "${BR0_BOND0_NAME}" bond_mode=balance-tcp
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:lacp-time=fast

@@ -256,11 +256,6 @@ create_bridge_br1() {
 			# ---------- Active-Backup Mode ----------
 			# Linux/OVS: Only one NIC is active at a time. If the active NIC fails,
 			#            traffic automatically fails over to the standby NIC.
-			# Switch-side: Standard switch (no LACP or EtherChannel needed)
-			# Topology: Single switch with dual NICs
-			# VMware Equivalent: NIC Teaming -> Failover Order (Active/Standby uplink)
-			#                   Load balancing: "Route based on originating virtual port ID"
-
 			nmcli con modify "ovs-port-$BR1_BOND1_NAME" ovs-port.bond-mode active-backup
 			log "Configured Active-Backup bond on ${BR1_BOND1_NAME}"
 			;;
@@ -269,10 +264,6 @@ create_bridge_br1() {
 			# ---------- Balance-SLB (Load Balancing) ----------
 			# Linux/OVS: All NICs in the bond are active. Outgoing traffic is distributed
 			#            across all active interfaces using adaptive load balancing.
-			# Switch-side: 1x Switch Static EtherChannel (manual aggregation)
-			# VMware Equivalent: NIC Teaming -> All uplinks active
-			#                   Load balancing: "Route based on IP hash"
-
 			nmcli con modify "ovs-port-$BR1_BOND1_NAME" ovs-port.bond-mode balance-slb
 			log "Configured Balance-SLB bond on ${BR1_BOND1_NAME} (multi-link active)"
 			;;
@@ -281,11 +272,7 @@ create_bridge_br1() {
 			# ---------- LACP (802.3ad) ----------
 			# Linux/OVS: Uses 802.3ad protocol to negotiate link aggregation with the switch.
 			#            Multiple NICs are active, and traffic is load-balanced according to
-			#            hash algorithms (typically TCP/UDP or IP hash).
-			# Switch: Two switches (stacked or vPC), LACP enabled
-			# Topology: Dual switches with vPC
-			# VMware Equivalent: vSphere vDS NIC Teaming, Load balancing: "Route based on IP hash"
-			#                   Requires LACP-capable switch	
+			#            hash algorithms (typically TCP/UDP).
 			nmcli con modify "ovs-port-$BR1_BOND1_NAME" ovs-port.bond-mode balance-tcp
             nmcli con modify "ovs-port-$BR1_BOND1_NAME" ovs-port.lacp active
 			log "Configured LACP bond on ${BR1_BOND1_NAME} (802.3ad active, negotiated multi-link aggregation)"
