@@ -3,7 +3,7 @@
 # Script: setup_firewalld_kvm.sh
 # Description: Configure firewalld for KVM bridges and VLANs with host-to-host trust rules
 # Author: Mahdi Bahmani
-# Date: 2025-08-28
+# Date: 2025-12-09
 # Usage: ./setup_firewalld_kvm.sh
 # ==============================================================================================
 #
@@ -18,7 +18,7 @@
 # br1-vlan151   VLAN 151 – iSCSI               virtual           151          data
 # br1-vlan152   VLAN 152 – NFS                 virtual           152          data
 # br1-vlan153   VLAN 153 – Live Migration      virtual           153          data
-# br2           ONTAP Select Internal          ens193, ens225    untagged     cluster
+# br2           Linux Cluster/ONTAP Select Internal          ens193, ens225    untagged     cluster
 # virbr0        Default NAT (Libvirt internal) internal          –            libvirt
 #
 # ----------------------------------------------------------------------------------------------
@@ -29,92 +29,202 @@
 #
 # ==============================================================================================
 
+set -ex
+LOGFILE="/var/log/setup_firewalld_kvm.sh.log"
+exec > >(tee -a "$LOGFILE") 2>&1
 
-set -e
-LOGFILE=/var/log/setup_firewalld_kvm.log
-exec > >(tee -a $LOGFILE) 2>&1
+#############################################
+# VARIABLES – EDIT FOR YOUR ENVIRONMENT
+#############################################
 
-# List of all physical interfaces
-echo "Detecting physical interfaces ..."
-IFACES=$(ls /sys/class/net | grep -vE '^(lo|virbr|vnet|tap)')
+BR_MGMT="br0"
+BR_DATA="br1"
+BR_CLUSTER=""            # If there is br2 set it BR_CLUSTER="br2". If you set this empty → cluster zone is skipped
+BR_LIBVIRT="virbr0"
 
-echo "Found physical interfaces: $IFACES"
+NMC_CONFIGURED="no"     # Set this to yes if interfaces are managed by NetworkManager (nmcli)
+# Physical OVS slave interfaces (no zone)
+OVS_SLAVES=(
+  "ovs-br0-if-eno3"
+  "ovs-br0-if-eno4"
+  "ovs-br1-if-eno1"
+  "ovs-br1-if-eno2"
+#  "ovs-br2-if-ens224"
+#  "ovs-br2-if-ens39"
+)
 
-# Remove all physical interfaces from all zones
-for iface in $IFACES; do
-  current_zone=$(firewall-cmd --get-active-zones | grep -w $iface -B1 | head -n1 | awk '{print $1}')
-  if [ -n "$current_zone" ]; then
-    echo "Removing $iface from $current_zone"
-    firewall-cmd --zone=$current_zone --remove-interface=$iface
-    firewall-cmd --zone=$current_zone --remove-interface=$iface --permanent
-  fi
-done
+DATA_VLANS=("br1-vlan151" "br1-vlan152" "br1-vlan153")
 
-echo "Starting firewalld configuration for KVM..."
+ZONE_MGMT="public"
+ZONE_DATA="data"
+ZONE_LIBVIRT="libvirt"
+ZONE_CLUSTER="cluster"
 
-# Create 'data' and 'cluster' zone if they don't exist
+TRUST_PUBLIC=("172.28.150.15" "172.28.150.16")
+TRUST_CLUSTER=("172.28.153.150" "172.28.153.151")
+
+DATA_PORTS_TCP=("2049" "3260" "49152-49261" "16509" "16514" "443")
+DATA_PORTS_UDP=("2049")
+
+#############################################
+# FUNCTIONS
+#############################################
+
 create_zone_if_missing() {
-  local ZONE=$1
-  if ! firewall-cmd --permanent --get-zones | grep -qw "$ZONE"; then
-    echo "Creating zone $ZONE..."
-    firewall-cmd --permanent --new-zone="$ZONE"
-  else
-    echo "Zone $ZONE already exists, skipping."
-  fi
+    local Z=$1
+    if ! firewall-cmd --permanent --get-zones | grep -qw "$Z"; then
+        echo "Creating zone: $Z"
+        firewall-cmd --permanent --new-zone="$Z"
+    fi
 }
-create_zone_if_missing data
-create_zone_if_missing cluster
 
-# Assign interfaces to appropriate zones
-echo "Assigning interfaces to zones..."
+#############################################
+# START
+#############################################
 
-# br0 = public (Management, CIFS)
-firewall-cmd --permanent --zone=public --add-interface=br0
+echo "===== Starting firewalld configuration ====="
 
-# br1 and VLAN interfaces go to data zone
-for iface in br1 br1-vlan151 br1-vlan152 br1-vlan153; do
-  firewall-cmd --permanent --zone=data --add-interface=$iface
+# Always create: data + libvirt zones
+create_zone_if_missing "$ZONE_DATA"
+create_zone_if_missing "$ZONE_LIBVIRT"
+
+#############################################
+# OPTIONAL CLUSTER ZONE (ONLY IF BROADER EXISTS)
+#############################################
+
+if [[ -n "$BR_CLUSTER" && "$BR_CLUSTER" == "br2" ]]; then
+    echo "Cluster interface br2 detected – enabling cluster zone"
+    create_zone_if_missing "$ZONE_CLUSTER"
+    firewall-cmd --permanent --zone="$ZONE_CLUSTER" --add-interface="$BR_CLUSTER"
+else
+    echo "No dedicated br2 cluster interface configured – skipping cluster zone"
+fi
+
+#############################################
+# BRIDGE → ZONE assignment
+#############################################
+
+firewall-cmd --permanent --zone="$ZONE_MGMT" --add-interface="$BR_MGMT"
+firewall-cmd --permanent --zone="$ZONE_DATA" --add-interface="$BR_DATA"
+
+for vlan in "${DATA_VLANS[@]}"; do
+    firewall-cmd --permanent --zone="$ZONE_DATA" --add-interface="$vlan"
 done
 
-# br2 = cluster (ONTAP Select Internal)
-firewall-cmd --permanent --zone=cluster --add-interface=br2
+firewall-cmd --permanent --zone="$ZONE_LIBVIRT" --add-interface="$BR_LIBVIRT"
 
-# virbr0 stays in libvirt zone
-firewall-cmd --permanent --zone=libvirt --add-interface=virbr0
+#############################################
+# MANAGEMENT ZONE RULES
+#############################################
 
-# Ports and services for public zone (br0)
-firewall-cmd --permanent --zone=public --add-service=ssh
-firewall-cmd --permanent --zone=public --add-service=cockpit
+firewall-cmd --permanent --zone="$ZONE_MGMT" --add-service=ssh
+firewall-cmd --permanent --zone="$ZONE_MGMT" --add-service=cockpit
+firewall-cmd --permanent --zone="$ZONE_MGMT" --add-port=443/tcp  # ONTAP Select Deploy API/HTTPS
+firewall-cmd --permanent --zone="$ZONE_MGMT" --add-port=3260/tcp # iSCSI (mailbox / internal storage paths)
 
-# Ports and services for data zone (Storage & Migration)
-firewall-cmd --permanent --zone=data --add-service=ssh
-firewall-cmd --permanent --zone=data --add-port=2049/tcp   # NFS
-firewall-cmd --permanent --zone=data --add-port=2049/udp   # NFS
-firewall-cmd --permanent --zone=data --add-port=3260/tcp   # iSCSI
-firewall-cmd --permanent --zone=data --add-port=49152-49261/tcp # Libvirt QEMU migration, etc.
-firewall-cmd --permanent --zone=data --add-port=16509/tcp  # Libvirt
-firewall-cmd --permanent --zone=data --add-port=16514/tcp  # Libvirt
+# ONTAP Select Deploy and KVM require ICMP allowed.
 
-# Disable masquerading (default)
-firewall-cmd --permanent --zone=data --remove-masquerade || true
 
-# Add rich rules for host-to-host trust
-echo "Adding host-to-host trust rules..."
+#############################################
+# DATA ZONE RULES
+#############################################
 
-for ip in 172.28.150.150 172.28.150.151; do
-  firewall-cmd --permanent --zone=public --add-rich-rule="rule family=ipv4 source address=$ip accept"
+firewall-cmd --permanent --zone="$ZONE_DATA" --add-service=ssh
+
+for p in "${DATA_PORTS_TCP[@]}"; do
+    firewall-cmd --permanent --zone="$ZONE_DATA" --add-port="${p}/tcp"
 done
-for ip in 172.28.153.150 172.28.153.151; do
-  firewall-cmd --permanent --zone=data --add-rich-rule="rule family=ipv4 source address=$ip accept"
+for p in "${DATA_PORTS_UDP[@]}"; do
+    firewall-cmd --permanent --zone="$ZONE_DATA" --add-port="${p}/udp"
 done
 
-# Reload firewall to apply changes
-echo "Reloading firewall..."
+firewall-cmd --permanent --zone="$ZONE_DATA" --remove-masquerade || true
+
+# ONTAP Select Deploy and KVM require ICMP allowed.
+
+
+#############################################
+# TRUSTED HOSTS
+#############################################
+
+for ip in "${TRUST_PUBLIC[@]}"; do
+    firewall-cmd --permanent --zone="$ZONE_MGMT" \
+    --add-rich-rule="rule family=ipv4 source address=$ip accept"
+done
+
+# If cluster zone exists, trust cluster there
+if firewall-cmd --permanent --get-zones | grep -qw "$ZONE_CLUSTER"; then
+    for ip in "${TRUST_CLUSTER[@]}"; do
+        firewall-cmd --permanent --zone="$ZONE_CLUSTER" \
+        --add-rich-rule="rule family=ipv4 source address=$ip accept"
+    done
+else
+    # Cluster on shared br1 (data)
+    for ip in "${TRUST_CLUSTER[@]}"; do
+        firewall-cmd --permanent --zone="$ZONE_DATA" \
+        --add-rich-rule="rule family=ipv4 source address=$ip accept"
+    done
+fi
+
+#############################################
+# FINALIZE
+#############################################
+
 firewall-cmd --reload
 
-echo "firewalld configuration completed."
+echo ""
+echo "===== ACTIVE CONFIGURATION ====="
 firewall-cmd --get-active-zones
-firewall-cmd --list-all --zone=public
-firewall-cmd --list-all --zone=data
-firewall-cmd --list-all --zone=cluster
-firewall-cmd --list-all --zone=libvirt
+firewall-cmd --list-all --zone="$ZONE_MGMT"
+firewall-cmd --list-all --zone="$ZONE_DATA"
+firewall-cmd --list-all --zone="$ZONE_LIBVIRT"
+
+if firewall-cmd --permanent --get-zones | grep -qw "$ZONE_CLUSTER"; then
+    firewall-cmd --list-all --zone="$ZONE_CLUSTER"
+fi
+
+#############################################
+# NETWORKMANAGER ZONE ASSIGNMENTS (optional)
+#############################################
+
+if [[ "$NMC_CONFIGURED" == "yes" ]]; then
+    echo "Applying NetworkManager zone assignments..."
+
+    # OVS slave interfaces -> no zone
+	if [[ ${#OVS_SLAVES[@]} -gt 0 ]]; then
+		for iface in "${OVS_SLAVES[@]}"; do
+			nmcli connection modify "$iface" connection.zone ""
+		done
+	fi
+
+
+    # Bridges
+    [[ -n "$BR_MGMT" ]]   && nmcli connection modify "$BR_MGMT"   connection.zone "$ZONE_MGMT"
+    [[ -n "$BR_DATA" ]]   && nmcli connection modify "$BR_DATA"   connection.zone "$ZONE_DATA"
+    [[ -n "$BR_LIBVIRT" ]] && nmcli connection modify "$BR_LIBVIRT" connection.zone "$ZONE_LIBVIRT"
+	
+	# Cluster (only if BR_CLUSTER=br2)
+	if [[ -n "$BR_CLUSTER" && "$BR_CLUSTER" == "br2" ]]; then
+		nmcli connection modify "$BR_CLUSTER" connection.zone "$ZONE_CLUSTER"
+	fi
+
+    # VLAN subinterfaces
+    for vlan in "${DATA_VLANS[@]}"; do
+        nmcli connection modify "$vlan" connection.zone "$ZONE_DATA"
+    done
+
+    # Apply changes
+    nmcli connection reload
+    [[ -n "$BR_MGMT" ]]   && nmcli connection up "$BR_MGMT"   || true
+    [[ -n "$BR_DATA" ]]   && nmcli connection up "$BR_DATA"   || true
+    [[ -n "$BR_CLUSTER" ]] && nmcli connection up "$BR_CLUSTER" || true
+    [[ -n "$BR_LIBVIRT" ]] && nmcli connection up "$BR_LIBVIRT" || true
+	
+	echo "===== NetworkManager zone assignment complete ====="
+else
+    echo "NetworkManager configuration skipped."
+fi
+
+
+echo "===== firewalld configuration complete ====="
+
