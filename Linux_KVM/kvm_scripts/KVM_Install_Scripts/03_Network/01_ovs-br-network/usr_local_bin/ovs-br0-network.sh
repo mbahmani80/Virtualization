@@ -170,6 +170,11 @@ create_bridge_br0() {
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:bond-miimon-interval=100
 			# Set the preferred active interface
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:bond-primary=${IFACE1}
+			
+			# A "cable cut" or "silent failure" where the physical NIC/link state remains UP on the server, but the actual data path is broken
+			# ARP Monitoring - (IP address(es) to ARP for—usually the switch SVI/gateway IP)
+			#ovs-vsctl set port "${BR0_BOND0_NAME}" other-config:bond-arp-enable=true 
+            #ovs-vsctl set port "${BR0_BOND0_NAME}" other-config:bond-arp-ip-target="10.10.10.1,10.10.10.2"
 
 			log "Configured Active-Backup bond on ${BR0_BOND0_NAME} with primary NIC ${IFACE1}"
 			;;
@@ -196,6 +201,12 @@ create_bridge_br0() {
 			ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:lacp-time=fast
 			#Transmit hash policy: layer3+4
             ovs-vsctl set port "${BR0_BOND0_NAME}" other_config:bond-hash-policy=layer3+4
+			
+			# A "cable cut" or "silent failure" where the physical NIC/link state remains UP on the server, but the actual data path is broken
+			# BFD Monitoring (Recommended for LACP/Active-Active)
+			# Bidirectional Forwarding Detection (BFD) is an industry-standard protocol for rapid fault detection.
+			# ovs-vsctl set port "${BR0_BOND0_NAME}" bfd:enable=true bfd:min-tx=100 bfd:min-rx=100
+			
 
 			log "Configured LACP bond on ${BR0_BOND0_NAME} (negotiated multi-link aggregation)"
 			;;

@@ -227,4 +227,3 @@ fi
 
 
 echo "===== firewalld configuration complete ====="
-

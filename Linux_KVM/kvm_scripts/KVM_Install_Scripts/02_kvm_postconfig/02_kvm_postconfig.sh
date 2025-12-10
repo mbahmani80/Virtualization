@@ -69,7 +69,7 @@ run_cmd "dnf install -y \
     fail2ban openssl sshguard tcpdump net-tools lldpd bind-utils lvm2 xfsprogs nfs-utils rsync parted \
     lsscsi vim nano screen curl wget zip unzip lshw pv htop iotop iftop sysstat dstat glances gpm \
     qemu-kvm libvirt virt-install libguestfs-tools virt-top virt-viewer \
-    edk2-ovmf swtpm swtpm-tools openvswitch3.3.x86_64 NetworkManager-ovs"
+    edk2-ovmf swtpm swtpm-tools openvswitch3.3.x86_64 NetworkManager-ovs lsof"
 
 log "=== Enabling libvirt and Open vSwitch services ==="
 run_cmd "systemctl enable --now libvirtd"
