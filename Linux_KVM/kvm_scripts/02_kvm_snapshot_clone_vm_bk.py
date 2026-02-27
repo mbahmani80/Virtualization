@@ -310,54 +310,31 @@ class KVMSnapshotManager:
     # -----------------------
     # Clone VM (with virt-sysprep option)
     # -----------------------
-    # -----------------------
-    # Clone VM (Template Aware - Production Safe)
-    # -----------------------
     def clone_vm(self, source_vm):
-
-        import os
-        import uuid
+        """Clone an existing VM to a new name and optionally run virt-sysprep."""
         import shutil
-        import tempfile
-        import xml.etree.ElementTree as ET
+        import os
 
         self.refresh_vms()
+
+        # Check for virt-clone availability
+        if not shutil.which("virt-clone"):
+            print("'virt-clone' not found. Please install 'virt-manager' or 'virt-install'.")
+            logging.error("virt-clone not installed.")
+            return
 
         print(f"\nPreparing to clone VM: {source_vm}")
         logging.info(f"Starting clone operation for '{source_vm}'")
 
-        # -------------------------------------------------
-        # Detect source qcow2 disk
-        # -------------------------------------------------
-        domblk = subprocess.run(
-            ['virsh', 'domblklist', source_vm],
-            capture_output=True, text=True
-        )
-
-        qcow2_path = None
-        for line in domblk.stdout.splitlines():
-            if ".qcow2" in line:
-                qcow2_path = line.split()[-1]
-                break
-
-        if not qcow2_path:
-            print("❌ Could not detect source qcow2 disk.")
-            logging.error(f"No qcow2 disk found for {source_vm}")
-            return
-
-        tar_path = qcow2_path.replace(".qcow2", ".tar.gz")
-
-        # -------------------------------------------------
-        # Select storage pool
-        # -------------------------------------------------
-        pools_result = subprocess.run(
-            ['virsh', 'pool-list', '--all'],
-            capture_output=True, text=True
-        )
-
+        # ---------------------------
+        # List available storage pools
+        # ---------------------------
+        pools_result = subprocess.run(['virsh', 'pool-list', '--all'], capture_output=True, text=True)
         pools = [line.split()[0] for line in pools_result.stdout.splitlines()[2:] if line.strip()]
+
         if not pools:
-            print("No storage pools found.")
+            print("No storage pools found. Please configure one with 'virsh pool-define'.")
+            logging.error("No KVM pools found.")
             return
 
         print("\nAvailable Storage Pools:")
@@ -366,184 +343,112 @@ class KVMSnapshotManager:
 
         pool_choice = input("Select storage pool number (default=1): ").strip()
         try:
-            selected_pool = pools[int(pool_choice) - 1] if pool_choice else pools[0]
-        except:
+            pool_index = int(pool_choice) - 1 if pool_choice else 0
+            selected_pool = pools[pool_index]
+        except (ValueError, IndexError):
             selected_pool = pools[0]
 
-        pool_xml = subprocess.run(
-            ['virsh', 'pool-dumpxml', selected_pool],
-            capture_output=True, text=True
-        )
+        # ---------------------------
+        # Get path of the selected pool
+        # ---------------------------
+        pool_xml = subprocess.run(['virsh', 'pool-dumpxml', selected_pool],
+                                  capture_output=True, text=True)
+        pool_path_line = [line for line in pool_xml.stdout.splitlines() if "<path>" in line]
+        pool_path = pool_path_line[0].replace("<path>", "").replace("</path>", "").strip() if pool_path_line else "/var/lib/libvirt/images"
 
-        pool_path = "/var/lib/libvirt/images"
-        for line in pool_xml.stdout.splitlines():
-            if "<path>" in line:
-                pool_path = line.replace("<path>", "").replace("</path>", "").strip()
-                break
+        print(f"\nSuggested storage path: {pool_path}")
+        target_path = input(f"Enter target directory for clone (default={pool_path}): ").strip() or pool_path
 
-        target_path = input(f"Enter target directory (default={pool_path}): ").strip() or pool_path
-        os.makedirs(target_path, exist_ok=True)
-
+        # ---------------------------
+        # Ask for clone name
+        # ---------------------------
         clone_name = input("Enter new VM clone name: ").strip()
         if not clone_name:
             print("Clone name cannot be empty.")
+            logging.warning("Clone name not provided.")
             return
 
-        target_disk = os.path.join(target_path, f"{clone_name}.qcow2")
+        # ---------------------------
+        # Ensure the target directory exists
+        # ---------------------------
+        if not os.path.exists(target_path):
+            try:
+                os.makedirs(target_path, exist_ok=True)
+                print(f"📁 Created directory: {target_path}")
+                logging.info(f"Created missing directory for clone target: {target_path}")
+            except Exception as e:
+                print(f"Failed to create target directory: {e}")
+                logging.error(f"Failed to create target directory {target_path}: {e}")
+                return
 
-        # =================================================
-        # CASE 1: TEMPLATE (.tar.gz) EXISTS
-        # =================================================
-        if os.path.exists(tar_path):
+        # ---------------------------
+        # Perform clone
+        # ---------------------------
+        print(f"\nCloning VM '{source_vm}' to '{clone_name}'...")
+        logging.info(f"Cloning '{source_vm}' to '{clone_name}' at '{target_path}'")
 
-            print(f"\n📦 Found compressed template: {tar_path}")
-            logging.info(f"Using template archive {tar_path}")
+        process = subprocess.Popen([
+            'virt-clone',
+            '--original', source_vm,
+            '--name', clone_name,
+            '--file', f"{target_path}/{clone_name}.qcow2"
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-            print("Extracting template safely...")
+        spinner = ['|', '/', '-', '\\']
+        i = 0
+        while process.poll() is None:
+            sys.stdout.write(f"\rCloning in progress... {spinner[i % len(spinner)]}")
+            sys.stdout.flush()
+            i += 1
+            time.sleep(0.2)
+        sys.stdout.write("\r")
 
-            with tempfile.TemporaryDirectory() as temp_dir:
+        stdout, stderr = process.communicate()
 
-                extract = subprocess.Popen(
-                    ['tar', '-xzf', tar_path, '-C', temp_dir],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+        if process.returncode != 0:
+            print(f"Clone failed:\n{stderr.strip()}")
+            logging.error(f"Clone failed for '{clone_name}': {stderr.strip()}")
+            return
 
-                spinner = ['|', '/', '-', '\\']
+        print(f"✅ Clone '{clone_name}' created successfully at {target_path}")
+        logging.info(f"Clone '{clone_name}' created successfully at {target_path}")
+
+        # ---------------------------
+        # Optionally run virt-sysprep
+        # ---------------------------
+        if shutil.which("virt-sysprep"):
+            choice = input(f"\nDo you want to run 'virt-sysprep' on {clone_name} to prepare it for reuse? [y/N]: ").strip().lower()
+            if choice == 'y':
+                print(f"Running virt-sysprep on '{clone_name}' (this may take a while)...")
+                logging.info(f"Running virt-sysprep on '{clone_name}'")
+
+                sysprep = subprocess.Popen(['virt-sysprep', '-d', clone_name],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 i = 0
-                while extract.poll() is None:
-                    sys.stdout.write(f"\rExtracting... {spinner[i % len(spinner)]}")
+                while sysprep.poll() is None:
+                    sys.stdout.write(f"\rCleaning system... {spinner[i % len(spinner)]}")
                     sys.stdout.flush()
                     i += 1
                     time.sleep(0.2)
                 sys.stdout.write("\r")
 
-                out, err = extract.communicate()
-                if extract.returncode != 0:
-                    print(f"❌ Extraction failed:\n{err}")
-                    logging.error(f"Extraction failed: {err}")
-                    return
+                sysprep_out, sysprep_err = sysprep.communicate()
 
-                # Search qcow2 inside archive
-                extracted_qcow2 = None
-                for root_dir, dirs, files in os.walk(temp_dir):
-                    for file in files:
-                        if file.endswith(".qcow2"):
-                            extracted_qcow2 = os.path.join(root_dir, file)
-                            break
-                    if extracted_qcow2:
-                        break
-
-                if not extracted_qcow2:
-                    print("❌ No qcow2 file found inside archive.")
-                    logging.error("No qcow2 inside tar archive.")
-                    return
-
-                shutil.move(extracted_qcow2, target_disk)
-
-            print(f"✅ Disk extracted to {target_disk}")
-
-            # -------------------------------------------------
-            # Rebuild XML safely
-            # -------------------------------------------------
-            print("Generating VM definition...")
-
-            xml_dump = subprocess.run(
-                ['virsh', 'dumpxml', source_vm],
-                capture_output=True, text=True
-            ).stdout
-
-            root = ET.fromstring(xml_dump)
-
-            # Change VM name
-            root.find("name").text = clone_name
-
-            # Remove old UUID
-            uuid_elem = root.find("uuid")
-            if uuid_elem is not None:
-                root.remove(uuid_elem)
-
-            # Add new UUID
-            new_uuid = str(uuid.uuid4())
-            uuid_tag = ET.SubElement(root, "uuid")
-            uuid_tag.text = new_uuid
-
-            # Update disk file path
-            for disk in root.findall("./devices/disk"):
-                source = disk.find("source")
-                if source is not None and 'file' in source.attrib:
-                    source.set("file", target_disk)
-
-            # Remove MAC addresses
-            for interface in root.findall("./devices/interface"):
-                mac = interface.find("mac")
-                if mac is not None:
-                    interface.remove(mac)
-
-            new_xml_path = f"/tmp/{clone_name}.xml"
-            ET.ElementTree(root).write(new_xml_path)
-
-            define = subprocess.run(
-                ['virsh', 'define', new_xml_path],
-                capture_output=True, text=True
-            )
-
-            if define.returncode != 0:
-                print(f"❌ VM define failed:\n{define.stderr}")
-                logging.error(f"VM define failed: {define.stderr}")
-                return
-
-            print(f"✅ VM '{clone_name}' defined successfully.")
-
-        # =================================================
-        # CASE 2: FALLBACK TO VIRT-CLONE
-        # =================================================
+                if sysprep.returncode == 0:
+                    print(f"✅ virt-sysprep completed successfully for '{clone_name}'.")
+                    logging.info(f"virt-sysprep completed for '{clone_name}'")
+                else:
+                    print(f"virt-sysprep failed: {sysprep_err.strip()}")
+                    logging.error(f"virt-sysprep failed for '{clone_name}': {sysprep_err.strip()}")
+            else:
+                print("virt-sysprep skipped by user.")
+                logging.info(f"virt-sysprep skipped for '{clone_name}'")
         else:
+            print("'virt-sysprep' not installed, skipping system preparation.")
+            logging.warning("virt-sysprep command missing on system.")
 
-            if not shutil.which("virt-clone"):
-                print("❌ virt-clone not installed.")
-                return
-
-            print("\nNo template archive found. Using virt-clone...")
-
-            process = subprocess.Popen([
-                'virt-clone',
-                '--original', source_vm,
-                '--name', clone_name,
-                '--file', target_disk
-            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-            spinner = ['|', '/', '-', '\\']
-            i = 0
-            while process.poll() is None:
-                sys.stdout.write(f"\rCloning... {spinner[i % len(spinner)]}")
-                sys.stdout.flush()
-                i += 1
-                time.sleep(0.2)
-            sys.stdout.write("\r")
-
-            stdout, stderr = process.communicate()
-
-            if process.returncode != 0:
-                print(f"❌ Clone failed:\n{stderr}")
-                logging.error(f"virt-clone failed: {stderr}")
-                return
-
-            print(f"✅ Clone '{clone_name}' created successfully.")
-
-        # -------------------------------------------------
-        # Optional virt-sysprep
-        # -------------------------------------------------
-        if shutil.which("virt-sysprep"):
-            choice = input(f"Run virt-sysprep on {clone_name}? [y/N]: ").strip().lower()
-            if choice == "y":
-                print("Running virt-sysprep...")
-                subprocess.run(['virt-sysprep', '-d', clone_name])
-                print("✅ virt-sysprep completed.")
-
-        print(f"\n🎉 Clone process completed for '{clone_name}'")
-        logging.info(f"Clone process completed for '{clone_name}'")
+        print(f"Clone process completed for '{clone_name}'.")
+        logging.info(f"Clone process completed for '{clone_name}'.")
 
 # =======================
 # Helper: Select VM
@@ -620,4 +525,5 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+
 
