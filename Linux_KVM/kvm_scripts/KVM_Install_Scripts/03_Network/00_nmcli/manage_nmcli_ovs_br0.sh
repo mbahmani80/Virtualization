@@ -12,6 +12,20 @@
 # Bridge: br0             (With static IP: x.x.x.x/x) Management, CIFS Access, untagged VLAN 150
 #  ├── Port: br0bond0     (Bonded: IFACE1 + IFACE2)
 #  └── Port: br0          
+#
+# Topology
+#
+# ens160 ----\
+#             \__ br0bond0 (OVS Port / bond)
+#             /     |
+# ens193 ----/      |
+#                   |
+#                   |
+#            ovs-bridge (br0)
+#             └─ ovs-port
+#                 └─ ovs-interface
+#                          |
+#                      Management IP
 #--------------------------------------------------------------------------------
 #===============================================================================
 #OPEN vSWITCH (OVS) BONDING MODES & SWITCH REQUIREMENTS

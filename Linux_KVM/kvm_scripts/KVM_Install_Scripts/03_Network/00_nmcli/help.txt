@@ -83,3 +83,115 @@ systemctl start ovs-bond-monitor.service
 ###    3.4.6 Hashing: Ensure the switch's load-balancing hash matches OVS (ideally L3 and L4).
 
 #===============================================================================
+
+# Topology
+#
+# ens160 ----\
+#             \__ br0bond0 (OVS Port / bond)
+#             /     |
+# ens193 ----/      |
+#                   |
+#                   |
+#            ovs-bridge (br0)
+#             └─ ovs-port
+#                 └─ ovs-interface
+#                          |
+#                      Management IP
+
+# Create the OVS Bridge
+nmcli con add type ovs-bridge conn.interface br0 con-name br0
+
+# Add Internal Bridge Interface
+ip link set ens160 mtu 1500
+ip link set ens193 mtu 1500
+
+nmcli con add type ovs-port conn.interface ovs-port-br0 master br0 con-name ovs-port-br0
+nmcli con add type ovs-interface slave-type ovs-port conn.interface br0 master ovs-port-br0 con-name ovs-if-br0 ipv4.method manual ipv4.addresses "192.168.178.41/24" mtu 1500
+
+# Create Bond Port and VLAN Trunk
+nmcli con add type ovs-port conn.interface br0bond0 master br0 con-name ovs-port-br0bond0
+
+# Add Physical Interfaces as Bond Slaves
+nmcli con add type ethernet conn.interface ens160 master ovs-port-br0bond0 con-name ovs-br0-if-ens160 mtu 1500
+nmcli con add type ethernet conn.interface ens193 master ovs-port-br0bond0 con-name ovs-br0-if-ens193 mtu 1500
+
+# ACTIVE_BACKUP
+nmcli con modify "ovs-port-br0bond0" ovs-port.bond-mode active-backup
+
+# BALANCE_SLB
+#nmcli con modify "ovs-port-br0bond0" ovs-port.bond-mode balance-slb
+
+# LACP
+#nmcli con modify "ovs-port-br0bond0" ovs-port.bond-mode balance-tcp
+#nmcli con modify "ovs-port-br0bond0" ovs-port.lacp active
+
+# Activate All Connections
+nmcli con reload
+nmcli con up "ovs-port-br0bond0"
+nmcli con up "ovs-br0-if-ens160"
+nmcli con up "ovs-br0-if-ens193"
+nmcli con up "ovs-port-br0"
+nmcli con up "ovs-if-br0"
+
+# Set only Primary Interface for Active_BACKUP Mode if selected
+ovs-vsctl set port "br0bond0" other_config:bond-primary=ens160 
+ovs-vsctl set port "br0bond0" other_config:bond-detect-mode=miimon
+ovs-vsctl set port "br0bond0" other_config:bond-miimon-interval=100
+
+
+# Set only link monitoring for BALANCE_SLB
+#ovs-vsctl set port "br0bond0" other_config:bond-detect-mode=miimon
+#ovs-vsctl set port "br0bond0" other_config:bond-miimon-interval=100
+
+# Configure bond for LACP and Transmit hash policy: layer3+4
+# Configure bond for LACP
+#ovs-vsctl set port "br0bond0" other_config:lacp-time=fast
+# Transmit hash policy: layer3+4
+#ovs-vsctl set port "br0bond0" other_config:bond-hash-policy=layer3+4
+
+
+# Validation & Troubleshooting
+
+[root@rocky9x:~]# nmcli con show
+NAME               UUID                                  TYPE           DEVICE
+ens256             12cda82b-78d2-41e6-bd1c-576b8afd9e8b  ethernet       ens256
+ens192             ab07feca-b0ea-450c-9609-ee7f0fef1979  ethernet       ens192
+ovs-if-br0         107c03d3-4ae5-42f3-bccd-62e56f5cfbe5  ovs-interface  br0
+br0                08b5d043-0d81-4c8b-a779-535118be12fd  ovs-bridge     br0
+ovs-br0-if-ens160  af556320-0293-4c8f-8488-943464864d08  ethernet       ens160
+ovs-br0-if-ens193  ff1d8e60-44ff-4114-a68b-5248034daed7  ethernet       ens193
+ovs-port-br0       6cdd0f10-a748-45cd-92dc-6ad1b81b9032  ovs-port       br0
+ovs-port-br0bond0  d2602a6c-dfe7-4695-a4ea-4fbb6efd6f4f  ovs-port       br0bond0
+lo                 ed1b1a97-b0d5-4806-b821-4220617a572b  loopback       lo
+[root@rocky9x:~]#
+
+## Check OVS topology:
+
+ovs-vsctl show
+ovs-appctl bond/show br0bond0
+ovs-vsctl  list port  br0bond0
+#ovs-appctl lacp/show br0bond0
+
+## Check interface IPs:
+
+nmcli -t -f NAME,DEVICE connection show
+ip a show br0
+ip a show br0-vlan151
+ip a show br0-vlan152
+ip a show br0-vlan153
+ip route
+
+## Ping VLAN peers:
+
+ping -c3 -I "$VLAN151" "$PING_VLAN151"
+ping -c3 -I "$VLAN152" "$PING_VLAN152"
+ping -c3 -I "$VLAN153" "$PING_VLAN153"
+
+## Check LLDP Neighbors
+
+lldpcli show neighbors ports "${IFACE3}" || echo "No LLDP neighbor on ${IFACE3}"
+lldpcli show neighbors ports "${IFACE4}" || echo "No LLDP neighbor on ${IFACE4}"
+
+
+# delete all
+ nmcli con delete ovs-br0-if-ens160 ovs-br0-if-ens193 ovs-port-br0 ovs-port-br0bond0 ovs-if-br0 br0
